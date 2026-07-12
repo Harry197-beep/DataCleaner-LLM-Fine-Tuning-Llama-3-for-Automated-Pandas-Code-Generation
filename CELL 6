@@ -1,0 +1,45 @@
+# ============================================================
+# CELL 6: Save LoRA Adapters Locally + Optional Push to HF Hub
+# ============================================================
+import os
+from huggingface_hub import login
+
+# --- 1) Save LoRA adapters locally ---
+local_save_dir = "/content/llama3-pandas-cleaner-lora"
+model.save_pretrained(local_save_dir)
+tokenizer.save_pretrained(local_save_dir)
+
+print(f"✅ LoRA adapters saved locally to: {local_save_dir}")
+print(f"   Saved files: {sorted(os.listdir(local_save_dir))}")
+print(f"   Total size:  {sum(os.path.getsize(os.path.join(local_save_dir, f)) for f in os.listdir(local_save_dir)) / 1e6:.1f} MB")
+
+
+# --- 2) Optional: Push to HuggingFace Hub ---
+#    Set HF_TOKEN in Colab:  left sidebar → 🔑 Secrets → add "HF_TOKEN"
+hf_token = os.environ.get("HF_TOKEN", "")
+
+if hf_token:
+    print("\n📤 Pushing LoRA adapters to HuggingFace Hub...")
+    login(token=hf_token)
+
+    # ⚠️ CHANGE THIS to your own repo name
+    hf_repo_id = "YOUR_USERNAME/llama3-pandas-cleaner-lora"
+
+    # Push standard PEFT LoRA adapters
+    model.push_to_hub(hf_repo_id, token=hf_token)
+    tokenizer.push_to_hub(hf_repo_id, token=hf_token)
+    print(f"✅ Adapters pushed to: https://huggingface.co/{hf_repo_id}")
+
+    # Optional: also export a merged 16-bit model for offline inference
+    # model.push_to_hub_merged(hf_repo_id, tokenizer, save_method="merged_16bit", token=hf_token)
+
+    # Optional: export GGUF for llama.cpp / Ollama usage
+    # model.push_to_hub_gguf(hf_repo_id, tokenizer, token=hf_token)
+else:
+    print("\n⚠️  No HF_TOKEN found in environment.")
+    print("   To push to Hub: add a Colab secret named 'HF_TOKEN' with your")
+    print("   HuggingFace write token, then re-run this cell.")
+    print("\n   To reload locally later:")
+    print("   model, tokenizer = FastLanguageModel.from_pretrained(")
+    print(f"       model_name='{local_save_dir}',")
+    print("       max_seq_length=2048, load_in_4bit=True)")
