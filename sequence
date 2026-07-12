@@ -1,0 +1,4 @@
+print(f"max_seq_length: {max_seq_length}")
+print(f"model: {type(model).__name__}")
+print(f"tokenizer: {type(tokenizer).__name__}")
+print(f"formatted_dataset: {type(formatted_dataset).__name__}, {len(formatted_dataset)} examples")
