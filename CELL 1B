@@ -1,0 +1,43 @@
+# ============================================================
+# CELL 1B: Load Model + Tokenizer + Attach LoRA
+# ============================================================
+import unsloth
+from unsloth import FastLanguageModel, is_bfloat16_supported
+import torch
+
+print(f"✅ unsloth: {unsloth.__version__}")
+print(f"✅ CUDA:    {torch.cuda.is_available()}")
+
+# THIS is the variable CELL 4 needs
+max_seq_length = 2048
+dtype = None
+load_in_4bit = True
+
+# THIS creates 'model' and 'tokenizer' that CELL 4 needs
+model, tokenizer = FastLanguageModel.from_pretrained(
+    model_name      = "unsloth/llama-3-8b-Instruct",
+    max_seq_length  = max_seq_length,
+    dtype           = dtype,
+    load_in_4bit    = load_in_4bit,
+)
+
+# Attach LoRA adapters
+model = FastLanguageModel.get_peft_model(
+    model,
+    r              = 16,
+    target_modules = ["q_proj", "k_proj", "v_proj", "o_proj",
+                      "gate_proj", "up_proj", "down_proj"],
+    lora_alpha               = 16,
+    lora_dropout             = 0,
+    bias                     = "none",
+    use_gradient_checkpointing = "unsloth",
+    random_state             = 3407,
+    use_rslora               = False,
+    loftq_config             = None,
+)
+
+FastLanguageModel.for_inference(model)
+
+print("\n✅ Model loaded + LoRA attached")
+print(f"   GPU memory: {torch.cuda.memory_allocated() / 1e9:.2f} GB / 16 GB")
+print(f"   Trainable params: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
