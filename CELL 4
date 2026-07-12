@@ -1,0 +1,46 @@
+# ============================================================
+# CELL 4: QLoRA Training (MODERN TRL API)
+# ============================================================
+from trl import SFTTrainer
+from transformers import TrainingArguments
+from unsloth import is_bfloat16_supported
+import time
+
+FastLanguageModel.for_training(model)
+
+# TRL 0.18+ uses a different API — formatting via the dataset's "text" column
+trainer = SFTTrainer(
+    model             = model,
+    tokenizer         = tokenizer,        # still accepted in 0.20
+    train_dataset     = formatted_dataset,
+    max_seq_length    = max_seq_length,
+    dataset_text_field = "text",
+    packing           = False,
+
+    args = TrainingArguments(
+        per_device_train_batch_size = 2,
+        gradient_accumulation_steps = 4,
+        warmup_steps                = 10,
+        max_steps                   = 200,
+        learning_rate               = 2e-4,
+        fp16                        = not is_bfloat16_supported(),
+        bf16                        = is_bfloat16_supported(),
+        logging_steps               = 10,
+        optim                       = "adamw_8bit",
+        weight_decay                = 0.01,
+        lr_scheduler_type           = "cosine",
+        seed                        = 3407,
+        output_dir                  = "outputs",
+        report_to                   = "none",
+        save_strategy               = "no",
+    ),
+)
+
+start_time = time.time()
+trainer_stats = trainer.train()
+elapsed = (time.time() - start_time) / 60
+
+print(f"\n✅ Training complete in {elapsed:.2f} minutes")
+print(f"   Total steps:     {trainer_stats.global_step}")
+print(f"   Training loss:   {trainer_stats.training_loss:.4f}")
+print(f"   Peak GPU memory: {torch.cuda.max_memory_allocated() / 1e9:.2f} GB / 16 GB")
