@@ -1,0 +1,160 @@
+# ============================================================
+# CELL 2: Synthetic Dataset Generation (1,000 examples)
+# ============================================================
+import json
+import random
+from faker import Faker
+
+fake = Faker()
+Faker.seed(42)
+random.seed(42)
+
+# --- Messy schema description templates ---
+MESSY_DATE_TEMPLATES = [
+    "Column '{col}' has mixed date formats like MM/DD/YYYY, YYYY-MM-DD, and text like 'Jan 1st 2024'. About {null_pct}% are null.",
+    "The '{col}' column contains dates in DD-MM-YY format, some with text like 'March 5th', and {null_pct}% missing values.",
+    "Column '{col}' has timestamps mixed with plain dates, some in Unix epoch format, with {null_pct}% nulls.",
+    "Column '{col}' stores dates as strings in varying formats (e.g., '2024/03/15', '15-Mar-2024', '03.15.2024'). {null_pct}% are missing.",
+]
+
+MESSY_STRING_TEMPLATES = [
+    "Column '{col}' has inconsistent casing (e.g., 'USA', 'usa', 'Usa'), leading/trailing whitespace, and {null_pct}% nulls.",
+    "The '{col}' column contains mixed-case names with extra spaces and embedded special characters, {null_pct}% missing.",
+    "Column '{col}' has values like '  John Doe ', 'JANE  smith', and {null_pct}% are empty strings.",
+]
+
+MESSY_NUMERIC_TEMPLATES = [
+    "Column '{col}' has numeric values stored as strings with '$' and ',' (e.g., '$1,234.56'). {null_pct}% are null.",
+    "The '{col}' column contains numbers as strings with currency symbols and percentage signs (e.g., '85%'). {null_pct}% missing.",
+    "Column '{col}' has integers mixed with floats written as strings, some with thousand separators. {null_pct}% are null.",
+]
+
+MESSY_CATEGORY_TEMPLATES = [
+    "Column '{col}' has redundant categories like {{'NY', 'New York', 'new york', 'n.y.'}}. {null_pct}% are null.",
+    "The '{col}' column has inconsistent categorical values with typos and varying cases. {null_pct}% missing.",
+    "Column '{col}' has free-text entries that should be standardized into a fixed set of categories. {null_pct}% nulls.",
+]
+
+# --- Pandas code generators (BEST PRACTICES enforced) ---
+def gen_date_cleaning(col):
+    return (
+        f"df = (\n"
+        f"    df\n"
+        f"    .assign({col}=lambda x: pd.to_datetime(x['{col}'], errors='coerce', infer_datetime_format=True))\n"
+        f"    .assign({col}=lambda x: x['{col}'].fillna(pd.Timestamp('1970-01-01')))\n"
+        f")"
+    )
+
+def gen_string_cleaning(col):
+    return (
+        f"df = (\n"
+        f"    df\n"
+        f"    .assign({col}=lambda x: x['{col}'].astype(str).str.strip().str.title())\n"
+        f"    .assign({col}=lambda x: x['{col}'].replace({{'nan': np.nan, '': np.nan, 'None': np.nan}}))\n"
+        f")"
+    )
+
+def gen_numeric_cleaning(col):
+    return (
+        f"df = (\n"
+        f"    df\n"
+        f"    .assign({col}=lambda x: (\n"
+        f"        x['{col}'].astype(str)\n"
+        f"        .str.replace('$', '', regex=False)\n"
+        f"        .str.replace(',', '', regex=False)\n"
+        f"        .str.replace('%', '', regex=False)\n"
+        f"        .str.strip()\n"
+        f"    ))\n"
+        f"    .assign({col}=lambda x: pd.to_numeric(x['{col}'], errors='coerce'))\n"
+        f"    .assign({col}=lambda x: x['{col}'].fillna(x['{col}'].median()))\n"
+        f")"
+    )
+
+def gen_category_cleaning(col):
+    return (
+        f"category_map = {{'ny': 'New York', 'new york': 'New York', 'n.y.': 'New York'}}\n"
+        f"df = (\n"
+        f"    df\n"
+        f"    .assign({col}=lambda x: x['{col}'].astype(str).str.strip().str.lower())\n"
+        f"    .assign({col}=lambda x: x['{col}'].map(category_map).fillna(x['{col}'].str.title()))\n"
+        f"    .assign({col}=lambda x: x['{col}'].replace({{'nan': np.nan}}))\n"
+        f")"
+    )
+
+def gen_duplicate_handling(pct):
+    return f"df = df.drop_duplicates().reset_index(drop=True)  # removed ~{pct}% dupes"
+
+def gen_outlier_handling(col):
+    return (
+        f"df = (\n"
+        f"    df\n"
+        f"    .assign({col}=lambda x: x['{col}'].clip(lower=x['{col}'].quantile(0.01),\n"
+        f"                                    upper=x['{col}'].quantile(0.99)))\n"
+        f")"
+    )
+
+# --- Example assembler ---
+COLUMN_TYPES = [
+    ("date",     MESSY_DATE_TEMPLATES,     gen_date_cleaning),
+    ("string",   MESSY_STRING_TEMPLATES,   gen_string_cleaning),
+    ("numeric",  MESSY_NUMERIC_TEMPLATES,  gen_numeric_cleaning),
+    ("category", MESSY_CATEGORY_TEMPLATES, gen_category_cleaning),
+]
+
+def generate_example():
+    n_cols = random.randint(1, 3)
+    chosen = random.sample(COLUMN_TYPES, k=min(n_cols, len(COLUMN_TYPES)))
+
+    descriptions = []
+    code_blocks  = ["import pandas as pd\nimport numpy as np"]
+
+    for issue_type, templates, code_gen in chosen:
+        col_name  = fake.word().capitalize()
+        null_pct  = random.choice([5, 10, 15, 20, 25, 30])
+        desc      = random.choice(templates).format(col=col_name, null_pct=null_pct)
+        descriptions.append(desc)
+        code_blocks.append(code_gen(col_name))
+
+        # Sometimes add outlier clipping for numeric cols
+        if issue_type == "numeric" and random.random() < 0.3:
+            descriptions.append(f"Column '{col_name}' also has extreme outliers that should be winsorized.")
+            code_blocks.append(gen_outlier_handling(col_name))
+
+    # Sometimes add duplicate handling
+    if random.random() < 0.4:
+        dup_pct = random.randint(5, 20)
+        descriptions.append(f"The DataFrame has ~{dup_pct}% duplicate rows that need removal.")
+        code_blocks.append(gen_duplicate_handling(dup_pct))
+
+    messy_desc = (
+        "I have a pandas DataFrame with the following issues:\n"
+        "- " + "\n- ".join(descriptions) +
+        "\n\nWrite production-ready Pandas code to clean it. "
+        "Use method chaining, no inplace=True, use pd.to_datetime with "
+        "errors='coerce', and handle nulls properly."
+    )
+    clean_code = "\n\n".join(code_blocks)
+    return {"messy_description": messy_desc, "clean_code": clean_code}
+
+# --- Generate 1,000 examples and save as JSONL ---
+examples = [generate_example() for _ in range(1000)]
+
+output_path = "/content/synthetic_pandas_data.jsonl"
+with open(output_path, "w") as f:
+    for ex in examples:
+        f.write(json.dumps(ex) + "\n")
+
+print(f"✅ Generated {len(examples):,} examples and saved to: {output_path}")
+print(f"   File size: {__import__('os').path.getsize(output_path) / 1024:.1f} KB\n")
+
+print("=" * 80)
+print("EXAMPLE 1 — INPUT:")
+print(examples[0]["messy_description"])
+print("\nEXAMPLE 1 — OUTPUT:")
+print(examples[0]["clean_code"])
+print("=" * 80)
+print("\nEXAMPLE 2 — INPUT:")
+print(examples[1]["messy_description"])
+print("\nEXAMPLE 2 — OUTPUT:")
+print(examples[1]["clean_code"])
+print("=" * 80)
