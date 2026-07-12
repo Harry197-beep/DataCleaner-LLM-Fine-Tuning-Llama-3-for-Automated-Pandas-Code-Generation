@@ -1,0 +1,55 @@
+# ============================================================
+# CELL 3: Load JSONL + Apply Llama-3 Chat Template
+# ============================================================
+from datasets import load_dataset
+from unsloth.chat_templates import get_chat_template
+
+# Attach Llama-3 chat template to the tokenizer
+# NOTE: newer Unsloth versions require ALL five mapping keys
+tokenizer = get_chat_template(
+    tokenizer,
+    chat_template = "llama-3",
+    mapping       = {
+        "role":      "role",
+        "content":   "content",
+        "user":      "user",
+        "assistant": "assistant",
+        "system":    "system",
+    },
+)
+
+# Load JSONL into a HuggingFace Dataset
+dataset = load_dataset(
+    "json",
+    data_files = "/content/synthetic_pandas_data.jsonl",
+    split      = "train",
+)
+print(f"✅ Loaded {len(dataset)} raw examples")
+
+# Format each example into the Llama-3 chat structure
+def formatting_prompts_func(examples):
+    convos = []
+    for messy, clean in zip(examples["messy_description"], examples["clean_code"]):
+        convos.append([
+            {"role": "user",      "content": messy},
+            {"role": "assistant", "content": clean},
+        ])
+    # apply_chat_template with tokenize=False returns the formatted string
+    texts = [
+        tokenizer.apply_chat_template(convo, tokenize=False, add_generation_prompt=False)
+        for convo in convos
+    ]
+    return {"text": texts}
+
+# Apply formatting (batched for speed)
+formatted_dataset = dataset.map(
+    formatting_prompts_func,
+    batched = True,
+    num_proc = 2,
+)
+
+print(f"✅ Formatting complete. {len(formatted_dataset)} examples ready for training.\n")
+print("=" * 80)
+print("VERIFICATION — First formatted example (truncated to 2,000 chars):\n")
+print(formatted_dataset[0]["text"][:2000])
+print("=" * 80)
